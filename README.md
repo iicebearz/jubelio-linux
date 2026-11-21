@@ -29,7 +29,6 @@ Build ini membungkus produk web yang sama ke dalam window desktop native.
 - [Cara kerja routing](#cara-kerja-routing)
 - [Keamanan](#keamanan)
 - [Troubleshooting](#troubleshooting)
-- [Keterbatasan](#keterbatasan)
 - [Lisensi dan atribusi](#lisensi-dan-atribusi)
 
 ---
@@ -274,19 +273,6 @@ dengan `--ozone-platform=wayland` atau `--ozone-platform=x11`.
 **Mikrofon/kamera tidak berfungsi**
 Izin `media` diizinkan oleh aplikasi, tetapi akses perangkat tetap bisa
 dibatasi oleh PipeWire/Portal atau pengaturan privasi desktop.
-
----
-
-## Keterbatasan
-
-- **Butuh internet.** Tidak ada mode offline; UI sepenuhnya dari web Jubelio.
-- **Bukan aplikasi native.** Performa dan fitur mengikuti web app.
-- **Tanpa auto-update.** Versi baru harus di-build dan didistribusikan ulang.
-- **Bergantung pada perilaku web.** Jika Jubelio mengubah rute `/ai-credit` atau
-  struktur login, logika redirect di `main.js` perlu disesuaikan.
-- **Hanya Linux x64.** Tidak ada target arm64, Windows, atau macOS di repo ini.
-- **Ikon build lama.** Ikon di `build/icon.png` dipakai apa adanya; ganti file
-  tersebut lalu build ulang jika perlu.
 
 ---
 
