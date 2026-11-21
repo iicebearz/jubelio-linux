@@ -5,6 +5,8 @@ const APP_URL = 'https://chat.jubelio.com/chat';
 const ORIGIN = 'https://chat.jubelio.com';
 const ICON = path.join(__dirname, 'build', 'icon.png');
 const EXTERNAL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
+const MEMORY_LOG_INTERVAL_MS = 60_000;
+const MEMORY_LOG_ENABLED = process.env.JUBELIO_MEM_LOG === '1';
 
 app.setName('Jubelio Chat');
 app.setDesktopName('jubelio-chat.desktop');
@@ -29,6 +31,28 @@ function openExternal(url) {
   } catch {
     // Ignore malformed URLs.
   }
+}
+
+function isChatInboxUrl(url) {
+  try {
+    const u = new URL(url);
+    if (u.origin !== ORIGIN) return false;
+    const pathname = u.pathname.replace(/\/+$/, '') || '/';
+    return pathname === '/' || pathname === '/chat';
+  } catch {
+    return false;
+  }
+}
+
+function logMemory() {
+  const rows = app.getAppMetrics().map(({ pid, type, name, memory }) => ({
+    pid,
+    type,
+    name,
+    rssMb: Math.round(memory.workingSetSize / 1024),
+    peakMb: Math.round(memory.peakWorkingSetSize / 1024),
+  }));
+  console.info('[jubelio-mem]', new Date().toISOString(), JSON.stringify(rows));
 }
 
 function guardWebContents(contents) {
@@ -64,6 +88,17 @@ function guardWebContents(contents) {
     }
     items.push({ role: 'selectAll' });
     Menu.buildFromTemplate(items).popup({ window: win });
+  });
+
+  contents.on('did-create-window', (child) => {
+    const closeOnInbox = (url) => {
+      if (!isChatInboxUrl(url)) return;
+      setTimeout(() => {
+        if (!child.isDestroyed()) child.close();
+      }, 300);
+    };
+    child.webContents.on('did-navigate', (event, url) => closeOnInbox(url));
+    child.webContents.on('did-navigate-in-page', (event, url) => closeOnInbox(url));
   });
 }
 
@@ -144,6 +179,12 @@ if (!gotLock) {
     });
 
     createWindow();
+
+    if (MEMORY_LOG_ENABLED) {
+      setTimeout(logMemory, 2000);
+      const memoryTimer = setInterval(logMemory, MEMORY_LOG_INTERVAL_MS);
+      app.on('will-quit', () => clearInterval(memoryTimer));
+    }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
