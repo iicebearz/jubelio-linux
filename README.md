@@ -8,7 +8,7 @@ Ini bukan port dari aplikasi Windows Jubelio. Installer Windows menggunakan Flut
 
 | | |
 |---|---|
-| Versi | 1.1.29 |
+| Versi | 1.1.30 |
 | Runtime | Electron 40 |
 | Target | Linux x64 |
 | Lisensi | GPL-3.0 |
@@ -25,6 +25,8 @@ Ini bukan port dari aplikasi Windows Jubelio. Installer Windows menggunakan Flut
 - Context menu native untuk cut, copy, paste, copy selection, dan select all.
 - Dukungan Wayland dengan fallback X11.
 - Logging penggunaan memori opsional.
+- Tombol **Bersihkan tab** di bilah tab untuk menutup semua tab chat sekaligus (dengan konfirmasi). Riwayat pesan di server tidak dihapus.
+- Sync otomatis per percakapan saat membuka chat baru: pesan disinkronkan lebih dulu sebelum tab dibuka. Berpindah ke tab yang sudah ada tidak memicu sync.
 
 ## Teknologi dan cara kerja
 
@@ -43,6 +45,8 @@ Tidak ada UI lokal yang dibuat ulang di repo ini. Tampilan chat berasal dari web
 
 Dengan pendekatan ini, repo hanya mengelola desktop wrapper: ukuran window, navigasi, izin, dan perilaku link. Perubahan UI utama tetap mengikuti web app Jubelio.
 
+Dua penyesuaian desktop disuntikkan lewat `inject.js` menggunakan `webContents.executeJavaScript()` pada `did-finish-load`. Tidak ada preload script, IPC, atau akses Node untuk halaman web. Lihat [Penyesuaian desktop](#penyesuaian-desktop).
+
 Tab chat juga merupakan fitur web app, bukan tab Electron. Daftarnya disimpan di `localStorage` dengan key `chat-tabs`, maksimal 12 tab. Hanya percakapan yang sedang aktif yang dirender.
 
 ## Persyaratan
@@ -59,6 +63,7 @@ Tab chat juga merupakan fitur web app, bukan tab Electron. Daftarnya disimpan di
 ```text
 jubelio-chat-linux/
 ├── main.js              # Electron entry point
+├── inject.js            # Penyesuaian UI yang disuntikkan ke web app
 ├── package.json         # Metadata dan script aplikasi
 ├── package-lock.json    # Lock dependency (Electron ^40.0.0)
 ├── build.sh            # Membuat build ke dist/
@@ -98,9 +103,9 @@ Untuk membuat build dan paket distribusi:
 ./package.sh
 ```
 
-`build.sh` membuat folder `dist/` dengan cara menyalin runtime Electron, memasukkan `main.js`, ikon, dan metadata aplikasi, lalu menyiapkan desktop entry. Script ini juga memberi peringatan jika `chrome-sandbox` membutuhkan pengaturan SUID root.
+`build.sh` membuat folder `dist/` dengan cara menyalin runtime Electron, memasukkan `main.js`, `inject.js`, ikon, dan metadata aplikasi, lalu menyiapkan desktop entry. Script ini juga memberi peringatan jika `chrome-sandbox` membutuhkan pengaturan SUID root.
 
-`package.sh` membuat empat format paket:
+`package.sh` membuat empat format paket di `/home/justbay/Git-repo/JUBELIO_BUILD` (bisa diubah lewat environment variable `BUILD_OUT`):
 
 | Format | File | Instalasi / penggunaan |
 |---|---|---|
@@ -148,6 +153,16 @@ Log ditulis setiap 60 detik dan mencakup informasi proses, misalnya:
 
 Dalam penggunaan normal, logging ini dimatikan. Saat logging aktif, jumlah proses `Tab` diharapkan tetap satu meskipun kamu membuka beberapa chat.
 
+## Penyesuaian desktop
+
+`inject.js` dipasang pada setiap halaman Jubelio yang selesai dimuat. Skrip hanya berjalan di konteks halaman; tidak memakai preload, IPC, atau API Node.
+
+**Bersihkan tab.** Tombol ditambahkan di bilah `[role="tablist"][aria-label="Percakapan terbuka"]`. Setelah konfirmasi, skrip menekan semua tombol `Tutup <nama>` bawaan web app satu per satu, termasuk tab aktif. State tab diperbarui oleh web app sendiri. Pesan di server tidak dihapus.
+
+**Sync saat membuka chat baru.** Klik pada baris daftar chat dicegat sebelum web app membuka tab. `buyerId` diambil dari props React pada baris. Jika buyer belum punya tab, skrip mengirim `POST https://chat-api.jubelio.com/chat/{buyerId}/sync` dengan header `Authorization` dari cookie `chat_token` dan `X-TENANT-ID` dari `localStorage['chat_tenant_context']`. Setelah respons diterima, klik diteruskan sehingga chat terbuka dengan data terbaru. Berpindah ke tab yang sudah ada tidak memicu sync. Opsi **Sinkronkan semua toko** sengaja tidak dipakai karena prosesnya lama.
+
+Penyesuaian ini bergantung pada struktur DOM, `aria-label`, dan internal React web app. Jika Jubelio mengubahnya, tombol atau sync tidak aktif, tetapi aplikasi tetap berjalan. Navigasi daftar chat dengan tombol panah belum memicu sync. Jika token kedaluwarsa saat sync, chat tetap terbuka dan web app melakukan refresh pada permintaan berikutnya.
+
 ## Integrasi desktop (opsional)
 
 `build.sh` membuat desktop entry di `dist/jubelio-chat.desktop`. Paket `.deb`, AppImage, dan `.pkg.tar.zst` sudah menyertakan desktop entry masing-masing.
@@ -173,6 +188,7 @@ Konfigurasi utama berada di bagian atas `main.js`.
 | `EXTERNAL_PROTOCOLS` | `http:`, `https:`, `mailto:` | Protokol yang boleh dibuka melalui OS |
 | `MEMORY_LOG_INTERVAL_MS` | `60000` | Interval logging memori |
 | `MEMORY_LOG_ENABLED` | `JUBELIO_MEM_LOG=1` | Mengaktifkan logging memori |
+| `INJECT_SCRIPT` | isi `inject.js` | Skrip penyesuaian yang disuntikkan ke halaman chat |
 
 Pengaturan lainnya:
 
@@ -205,7 +221,7 @@ Pengaturan keamanan Electron yang digunakan:
 
 - `nodeIntegration` dimatikan dan sandbox aktif, sehingga halaman web tidak memiliki akses Node.js.
 - `contextIsolation` memisahkan konteks aplikasi dan halaman.
-- Tidak menggunakan preload script maupun IPC kustom.
+- Tidak menggunakan preload script maupun IPC kustom. Skrip `inject.js` berjalan di konteks halaman dan tidak memberi halaman akses Node.
 - Navigasi top-level keluar dari domain Jubelio dicegah dan link eksternal dialihkan ke browser.
 - Hanya protokol `http:`, `https:`, dan `mailto:` yang diteruskan ke OS.
 - Izin web menggunakan whitelist; permintaan lainnya ditolak.

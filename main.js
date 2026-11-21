@@ -1,9 +1,18 @@
 const { app, BrowserWindow, Menu, shell, session } = require('electron');
+const fs = require('fs');
 const path = require('path');
 
 const APP_URL = 'https://chat.jubelio.com/chat';
 const ORIGIN = 'https://chat.jubelio.com';
 const ICON = path.join(__dirname, 'build', 'icon.png');
+const INJECT_SCRIPT = (() => {
+  try {
+    return fs.readFileSync(path.join(__dirname, 'inject.js'), 'utf8');
+  } catch (err) {
+    console.error('Failed to read inject.js:', err.message);
+    return '';
+  }
+})();
 const EXTERNAL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
 const MEMORY_LOG_INTERVAL_MS = 60_000;
 const MEMORY_LOG_ENABLED = process.env.JUBELIO_MEM_LOG === '1';
@@ -56,6 +65,13 @@ function logMemory() {
 }
 
 function guardWebContents(contents) {
+  contents.on('did-finish-load', () => {
+    if (!INJECT_SCRIPT || !isJubelioUrl(contents.getURL())) return;
+    contents.executeJavaScript(INJECT_SCRIPT).catch((err) => {
+      console.error('Failed to inject desktop enhancements:', err.message);
+    });
+  });
+
   contents.setWindowOpenHandler(({ url }) => {
     if (isJubelioUrl(url)) {
       return {

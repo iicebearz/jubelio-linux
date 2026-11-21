@@ -10,7 +10,7 @@ mkdir -p "$out"
 cp -a node_modules/electron/dist/. "$out"/
 rm -f "$out/resources/default_app.asar"
 mkdir -p "$out/resources/app/build"
-cp main.js "$out/resources/app/"
+cp main.js inject.js "$out/resources/app/"
 cp build/icon.png "$out/resources/app/build/"
 printf '{"name":"jubelio-chat","productName":"Jubelio Chat","version":"%s","main":"main.js"}\n' "$version" \
   > "$out/resources/app/package.json"
