@@ -1,368 +1,276 @@
-# Jubelio Chat — Linux
+# Jubelio Chat for Linux
 
-Aplikasi desktop Linux untuk **Jubelio Chat**. Bentuknya adalah *shell* Electron
-yang memuat web app resmi `https://chat.jubelio.com` di dalam satu window native.
+Jubelio Chat versi desktop untuk Linux. Proyek ini membungkus web app resmi [Jubelio Chat](https://chat.jubelio.com) menggunakan Electron, jadi kamu bisa menjalankannya sebagai aplikasi desktop tanpa harus membuka chat lewat browser.
 
-Ini **bukan port source code**. Installer Windows Jubelio berisi Flutter AOT
-(`app.so`) tanpa source Dart, jadi UI-nya tidak bisa di-recompile ke Linux. Build
-ini membungkus produk web yang sama ke dalam window desktop.
+Ini bukan port dari aplikasi Windows Jubelio. Installer Windows menggunakan Flutter AOT (`app.so`) dan tidak menyertakan source Dart yang bisa digunakan untuk membangun ulang UI di Linux. Karena itu, aplikasi ini menggunakan web app Jubelio yang sama, lalu menyediakan desktop window, routing, dan integrasi Linux di sekelilingnya.
+
+## Info aplikasi
 
 | | |
 |---|---|
 | Versi | 1.1.29 |
-| Basis | Electron 40 (Chromium + Node.js) |
+| Runtime | Electron 40 |
 | Target | Linux x64 |
 | Lisensi | GPL-3.0 |
-| Release | [GitHub Releases](https://github.com/iicebearz/jubelio-linux/releases) |
-
----
-
-## Daftar isi
-
-- [Ringkasan teknis](#ringkasan-teknis)
-- [Fitur](#fitur)
-- [Persyaratan](#persyaratan)
-- [Struktur proyek](#struktur-proyek)
-- [Menjalankan aplikasi](#menjalankan-aplikasi)
-- [Build dan packaging](#build-dan-packaging)
-- [Memori dan tab chat](#memori-dan-tab-chat)
-- [Integrasi desktop](#integrasi-desktop-opsional)
-- [Konfigurasi](#konfigurasi)
-- [Cara kerja routing](#cara-kerja-routing)
-- [Keamanan](#keamanan)
-- [Troubleshooting](#troubleshooting)
-- [Lisensi dan atribusi](#lisensi-dan-atribusi)
-
----
-
-## Ringkasan teknis
-
-### Dibangun dengan apa
-
-- **Electron 40** — runtime Chromium + Node.js. Satu proses main dan satu
-  renderer untuk halaman chat.
-- **`main.js`** — entry point CommonJS, satu file, tanpa bundler. Mengatur
-  window, routing, user agent, izin, context menu, dan kebijakan navigasi.
-- **Tanpa preload / IPC kustom.** Renderer tidak diberi akses Node.js
-  (`nodeIntegration: false`, `sandbox: true`, `contextIsolation: true`).
-- **`build.sh`** — packaging manual: menyalin runtime Electron dan menulis
-  `resources/app` berisi `main.js`, ikon, dan `package.json`.
-- **`package.sh`** — membuat paket `.deb`, AppImage, `.pkg.tar.zst`, dan
-  `.tar.gz` dari hasil `build.sh`.
-- Tidak ada framework UI lokal, tidak ada Dart/Flutter, tidak ada source React
-  di repo ini.
-
-### UI disusun dari apa
-
-Seluruh tampilan berasal dari web app Jubelio di `https://chat.jubelio.com`
-dan di-render oleh Chromium. Berdasarkan inspeksi bundle produksi web app:
-
-| Lapisan | Teknologi |
-|---|---|
-| UI | React, dibangun dengan Vite (`/assets/index-*.js`) |
-| Styling | Tailwind CSS (utility classes, `data-[state=...]` variants) |
-| Komponen | Radix UI primitives (tabs, dialog, roving focus, slot) |
-| State server | TanStack Query (cache query conversations/messages) |
-| State lokal | Zustand, sebagian di-persist ke `localStorage` |
-
-Konsekuensinya:
-
-- Tidak ada file HTML/CSS/JS antarmuka di repositori ini. Perubahan tampilan
-  sepenuhnya ditentukan oleh server Jubelio.
-- Aplikasi ini hanya mengontrol *container*-nya: ukuran window, navigasi,
-  izin, dan perilaku link.
-- Tab chat adalah fitur **web app**, bukan tab Electron. State-nya disimpan di
-  `localStorage` dengan kunci `chat-tabs`, dibatasi **maksimal 12 tab**, dan
-  hanya percakapan aktif yang dirender.
-
----
+| Download | [GitHub Releases](https://github.com/iicebearz/jubelio-linux/releases) |
 
 ## Fitur
 
-- **Langsung ke inbox chat.** Membuka `https://chat.jubelio.com/chat`, bukan
-  portal top-up `/ai-credit`. Setelah login, web app yang mendarat di
-  `/ai-credit` otomatis diarahkan ke `/chat`.
-- **Link Jubelio tetap di dalam app.** URL `https://jubelio.com` dan
-  subdomainnya dibuka sebagai window baru di dalam aplikasi. Window turunan
-  yang kembali ke `/chat` atau `/` ditutup otomatis setelah 300 ms.
-- **Link luar buka browser default.** URL non-Jubelio
-  (`http:`, `https:`, `mailto:`) dibuka lewat `shell.openExternal`.
-- **Sesi login tersimpan.** Cookie dan storage ada di `~/.config/Jubelio Chat`.
-- **Satu instance saja.** Instance kedua memfokuskan window yang sudah ada.
-- **Izin web terbatas.** Notifikasi, media, fullscreen, dan
-  `clipboard-sanitized-write` diizinkan; sisanya ditolak.
-- **Context menu native.** Cut/copy/paste, copy seleksi, dan select all.
-- **Wayland native, fallback X11** lewat `ozone-platform-hint=auto`.
-- **User agent desktop** mengikuti versi Chrome bawaan Electron.
-- **Monitoring memori opsional.** `JUBELIO_MEM_LOG=1` mencatat memori per
-  proses tiap 60 detik (default mati).
+- Membuka langsung halaman chat (`/chat`), bukan halaman AI Credit.
+- Mengarahkan kembali ke inbox chat setelah login jika web app masuk ke `/` atau `/ai-credit`.
+- Membuka link Jubelio di window aplikasi, sementara link di luar Jubelio diteruskan ke browser default.
+- Menyimpan sesi login, cookie, dan web storage di `~/.config/Jubelio Chat`.
+- Single-instance: saat aplikasi dibuka lagi, window yang sudah berjalan akan difokuskan.
+- Izin web dibatasi untuk notifikasi, media, fullscreen, dan penulisan clipboard yang disanitasi.
+- Context menu native untuk cut, copy, paste, copy selection, dan select all.
+- Dukungan Wayland dengan fallback X11.
+- Logging penggunaan memori opsional.
 
----
+## Teknologi dan cara kerja
+
+Aplikasi ini menggunakan Electron 40 (Chromium dan Node.js). Entry point-nya adalah `main.js`, file CommonJS sederhana tanpa bundler. File tersebut menangani window, routing, user agent, izin, context menu, dan aturan navigasi.
+
+Tidak ada UI lokal yang dibuat ulang di repo ini. Tampilan chat berasal dari web app Jubelio dan dirender oleh Chromium. Berdasarkan inspeksi bundle web app, UI-nya menggunakan React, Vite, Tailwind CSS, Radix UI, TanStack Query, dan Zustand.
+
+| Bagian | Teknologi |
+|---|---|
+| UI web | React + Vite |
+| Styling | Tailwind CSS |
+| Komponen | Radix UI |
+| Data server | TanStack Query |
+| State lokal | Zustand, sebagian disimpan di `localStorage` |
+| Desktop wrapper | Electron 40 |
+
+Dengan pendekatan ini, repo hanya mengelola desktop wrapper: ukuran window, navigasi, izin, dan perilaku link. Perubahan UI utama tetap mengikuti web app Jubelio.
+
+Tab chat juga merupakan fitur web app, bukan tab Electron. Daftarnya disimpan di `localStorage` dengan key `chat-tabs`, maksimal 12 tab. Hanya percakapan yang sedang aktif yang dirender.
 
 ## Persyaratan
 
-- Linux x64 dengan glibc (bukan musl/Alpine).
-- **Node.js 22.12+** dan npm untuk build dari source.
-- Koneksi internet — seluruh UI berasal dari web app Jubelio.
-- Ruang disk ±600 MB untuk `node_modules` dan `dist`, plus ±1,2 GB saat
-  membuat keempat paket sekaligus.
-- `xdg-open` dan desktop environment untuk link eksternal & integrasi desktop.
-- `dpkg-deb` untuk `.deb`, `zstd` untuk `.pkg.tar.zst`, dan `curl` untuk
-  mengunduh `appimagetool` saat membuat AppImage.
-
----
+- Linux x64 dengan glibc (musl/Alpine tidak didukung).
+- Node.js 22.12+ dan npm, jika ingin build dari source.
+- Koneksi internet, karena UI diambil dari web app Jubelio.
+- Sekitar 600 MB ruang disk untuk `node_modules` dan `dist`; sekitar 1,2 GB jika membuat seluruh paket sekaligus.
+- `xdg-open` dan desktop environment untuk membuka link eksternal dan integrasi desktop.
+- `dpkg-deb` untuk paket `.deb`, `zstd` untuk `.pkg.tar.zst`, dan `curl` untuk mengunduh `appimagetool` saat membuat AppImage.
 
 ## Struktur proyek
 
-```
+```text
 jubelio-chat-linux/
-├── main.js              # Entry point Electron: window, routing, izin, memori
-├── package.json         # Metadata app + script start
-├── package-lock.json    # Lock dependency (electron ^40.0.0)
-├── build.sh             # Packaging manual ke dist/
-├── package.sh           # Build .deb / AppImage / .pkg.tar.zst / .tar.gz
+├── main.js              # Electron entry point
+├── package.json         # Metadata dan script aplikasi
+├── package-lock.json    # Lock dependency (Electron ^40.0.0)
+├── build.sh            # Membuat build ke dist/
+├── package.sh          # Membuat paket distribusi
 ├── build/
-│   └── icon.png         # Ikon aplikasi (512 px)
-├── dist/                # Hasil build.sh (dihasilkan ulang)
-└── node_modules/        # Dependensi (electron)
+│   └── icon.png       # Ikon aplikasi (512 px)
+├── dist/               # Output build (dibuat ulang)
+└── node_modules/       # Dependency Electron
 ```
-
-Output paket berada di luar repo: `/home/justbay/Git-repo/JUBELIO_BUILD`.
-
----
 
 ## Menjalankan aplikasi
 
-### Binary hasil build
+### Menjalankan binary hasil build
 
 ```sh
 "./dist/Jubelio Chat-linux-x64/Jubelio Chat"
 ```
 
-Tanda kutip diperlukan karena nama binary mengandung spasi.
+Gunakan tanda kutip karena nama binary mengandung spasi.
 
-### Mode development
+### Menjalankan dari source
 
 ```sh
 npm install
-node node_modules/electron/install.js   # npm 12 memblokir postinstall
+node node_modules/electron/install.js
 npm start
 ```
 
----
+Langkah `electron/install.js` diperlukan pada setup npm 12 yang memblokir postinstall Electron.
 
 ## Build dan packaging
 
+Untuk membuat build dan paket distribusi:
+
 ```sh
-./build.sh     # menghasilkan dist/
-./package.sh   # menghasilkan 4 paket di /home/justbay/Git-repo/JUBELIO_BUILD
+./build.sh
+./package.sh
 ```
 
-`build.sh` melakukan packaging manual:
+`build.sh` membuat folder `dist/` dengan cara menyalin runtime Electron, memasukkan `main.js`, ikon, dan metadata aplikasi, lalu menyiapkan desktop entry. Script ini juga memberi peringatan jika `chrome-sandbox` membutuhkan pengaturan SUID root.
 
-1. Membaca versi dari `package.json`.
-2. Menghapus `dist/Jubelio Chat-linux-x64` lalu menyalin runtime Electron.
-3. Menghapus `resources/default_app.asar`.
-4. Menyalin `main.js` dan `build/icon.png` ke `resources/app/`.
-5. Menulis `resources/app/package.json`.
-6. Mengganti nama binary menjadi `Jubelio Chat`.
-7. Menulis `dist/jubelio-chat.desktop`.
-8. Memperingatkan jika `chrome-sandbox` butuh SUID root.
+`package.sh` membuat empat format paket:
 
-`package.sh` menghasilkan:
-
-| Format | Nama file | Cara pasang |
+| Format | File | Instalasi / penggunaan |
 |---|---|---|
 | Debian/Ubuntu | `jubelio-chat_<versi>_amd64.deb` | `sudo apt install ./jubelio-chat_<versi>_amd64.deb` |
-| AppImage | `Jubelio-Chat-<versi>-x86_64.AppImage` | `chmod +x` lalu jalankan langsung |
-| Arch | `jubelio-chat-<versi>-1-x86_64.pkg.tar.zst` | `sudo pacman -U ./jubelio-chat-<versi>-1-x86_64.pkg.tar.zst` |
-| Portable | `Jubelio-Chat-<versi>-linux-x64.tar.gz` | ekstrak lalu jalankan `Jubelio Chat` di dalamnya |
+| AppImage | `Jubelio-Chat-<versi>-x86_64.AppImage` | `chmod +x`, lalu jalankan |
+| Arch Linux | `jubelio-chat-<versi>-1-x86_64.pkg.tar.zst` | `sudo pacman -U ./jubelio-chat-<versi>-1-x86_64.pkg.tar.zst` |
+| Portable | `Jubelio-Chat-<versi>-linux-x64.tar.gz` | Ekstrak dan jalankan binary `Jubelio Chat` |
 
-Paket `.deb`, AppImage, dan `.pkg.tar.zst` memasang binary ke
-`/opt/jubelio-chat`, symlink `/usr/bin/jubelio-chat`, desktop entry, dan ikon
-hicolor 512 px. `appimagetool` diunduh otomatis ke
-`~/.cache/jubelio-build/` bila belum ada.
+Paket `.deb`, AppImage, dan `.pkg.tar.zst` memasang aplikasi ke `/opt/jubelio-chat`, membuat symlink `/usr/bin/jubelio-chat`, desktop entry, serta ikon hicolor 512 px. Jika `appimagetool` belum tersedia, script akan mengunduhnya ke `~/.cache/jubelio-build/`.
 
-Versi mengikuti `package.json`. Untuk menaikkan versi, ubah field `version`,
-lalu jalankan ulang `build.sh` dan `package.sh`. Jangan mengedit isi `dist/`
-atau paket secara manual.
+Versi aplikasi mengikuti `package.json`. Untuk merilis versi baru, ubah nilai `version`, lalu jalankan ulang build dan packaging. Hindari mengedit isi `dist/` atau paket hasil build secara manual.
 
----
+## Tab chat dan penggunaan memori
 
-## Memori dan tab chat
+Pengukuran menggunakan `app.getAppMetrics()` pada mesin pengujian menunjukkan penggunaan sekitar 300 MB PSS untuk keseluruhan aplikasi. Angka ini dapat berbeda tergantung sistem, sesi, dan aktivitas chat.
 
-Pengukuran langsung dengan `app.getAppMetrics()` memberi gambaran:
+Perkiraan saat pengujian:
 
-- Total ≈ 300 MB PSS untuk seluruh aplikasi (RSS lebih besar karena memory
-  shared dihitung per proses).
-- Renderer halaman chat ≈ 120–140 MB PSS; main ≈ 72 MB; GPU ≈ 54 MB;
-  network ≈ 17 MB; audio ≈ 23 MB.
-- Swap yang terpakai aplikasi ≈ 140 MB pada mesin pengujian.
+- Renderer chat: 120–140 MB PSS
+- Main process: sekitar 72 MB
+- GPU process: sekitar 54 MB
+- Network process: sekitar 17 MB
+- Audio process: sekitar 23 MB
+- Swap yang digunakan aplikasi: sekitar 140 MB
 
-Tab chat **tidak** menambah proses renderer:
+Membuka beberapa tab chat tidak membuat aplikasi menjalankan banyak renderer. Tab disimpan oleh web app di `localStorage`, maksimal 12 tab, dan hanya panel percakapan aktif yang dipasang. Jadi, berpindah chat tidak berarti membuat 12 window atau 12 renderer Electron.
 
-- Daftar tab disimpan web app di `localStorage` (`chat-tabs`), maksimal 12.
-- Hanya label tab yang dirender untuk tab non-aktif; panel percakapan aktif
-  saja yang dipasang.
-- Jadi pindah chat tidak membuat 12 window atau 12 renderer Electron.
-
-Untuk memantau:
+Logging memori bisa diaktifkan saat menjalankan aplikasi:
 
 ```sh
 JUBELIO_MEM_LOG=1 npm start
 ```
 
-Atau pada binary hasil build:
+Atau untuk binary hasil build:
 
 ```sh
 JUBELIO_MEM_LOG=1 "./dist/Jubelio Chat-linux-x64/Jubelio Chat"
 ```
 
-Baris log berbentuk:
+Log ditulis setiap 60 detik dan mencakup informasi proses, misalnya:
 
-```
+```text
 [jubelio-mem] 2026-11-21T... [{"pid":123,"type":"Browser","rssMb":204,...},{"type":"Tab",...}]
 ```
 
-Jumlah entri `type: "Tab"` harus tetap **1** meskipun banyak chat dibuka —
-ini membuktikan tab web app berbagi satu renderer. Log default mati agar tidak
-mengganggu pemakaian normal.
-
----
+Dalam penggunaan normal, logging ini dimatikan. Saat logging aktif, jumlah proses `Tab` diharapkan tetap satu meskipun kamu membuka beberapa chat.
 
 ## Integrasi desktop (opsional)
 
-`build.sh` menghasilkan `dist/jubelio-chat.desktop` dengan path absolut ke
-binary. Paket `.deb`, AppImage, dan `.pkg.tar.zst` sudah memasang desktop entry
-sendiri.
+`build.sh` membuat desktop entry di `dist/jubelio-chat.desktop`. Paket `.deb`, AppImage, dan `.pkg.tar.zst` sudah menyertakan desktop entry masing-masing.
+
+Jika ingin memasang desktop entry dari build lokal:
 
 ```sh
 cp "dist/jubelio-chat.desktop" ~/.local/share/applications/
 update-desktop-database ~/.local/share/applications 2>/dev/null || true
 ```
 
-`StartupWMClass=jubelio-chat` cocok dengan `app.setDesktopName()` di `main.js`.
-
----
+`StartupWMClass=jubelio-chat` disesuaikan dengan `app.setDesktopName()` di `main.js`.
 
 ## Konfigurasi
 
-Konfigurasi ada di bagian atas `main.js`:
+Konfigurasi utama berada di bagian atas `main.js`.
 
-| Konstanta | Nilai | Fungsi |
+| Konstanta | Nilai | Keterangan |
 |---|---|---|
-| `APP_URL` | `https://chat.jubelio.com/chat` | URL saat start & target redirect |
-| `ORIGIN` | `https://chat.jubelio.com` | Origin yang dipantau untuk routing |
+| `APP_URL` | `https://chat.jubelio.com/chat` | URL awal dan target redirect |
+| `ORIGIN` | `https://chat.jubelio.com` | Origin yang digunakan untuk routing |
 | `ICON` | `build/icon.png` | Ikon window dan window baru |
-| `EXTERNAL_PROTOCOLS` | `http:`, `https:`, `mailto:` | Protokol yang boleh dibuka ke OS |
+| `EXTERNAL_PROTOCOLS` | `http:`, `https:`, `mailto:` | Protokol yang boleh dibuka melalui OS |
 | `MEMORY_LOG_INTERVAL_MS` | `60000` | Interval logging memori |
 | `MEMORY_LOG_ENABLED` | `JUBELIO_MEM_LOG=1` | Mengaktifkan logging memori |
 
-Nilai lain yang tertanam:
+Pengaturan lainnya:
 
-- Ukuran window: 1280×820, minimum 940×600.
-- Whitelist izin: `notifications`, `media`, `fullscreen`,
-  `clipboard-sanitized-write`.
-- User agent: `Mozilla/5.0 (X11; Linux x86_64) ... Chrome/<versi Electron>`.
-- Web preferences: `contextIsolation: true`, `nodeIntegration: false`,
-  `sandbox: true`, `spellcheck: true`.
-- Data sesi: `~/.config/Jubelio Chat`.
+- Ukuran window awal 1280×820, minimum 940×600.
+- Izin yang diizinkan: `notifications`, `media`, `fullscreen`, dan `clipboard-sanitized-write`.
+- User agent desktop menggunakan versi Chrome bawaan Electron.
+- `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, dan `spellcheck: true`.
+- Data sesi disimpan di `~/.config/Jubelio Chat`.
 
-Untuk memakai environment Jubelio lain, ubah `APP_URL`, `ORIGIN`, dan
-`isJubelioUrl()` secara konsisten, lalu build ulang.
+Jika ingin menggunakan environment Jubelio lain, sesuaikan `APP_URL`, `ORIGIN`, dan `isJubelioUrl()` secara konsisten, lalu build ulang.
 
----
+## Routing
 
-## Cara kerja routing
+Setelah login, web app Jubelio terkadang masuk ke `/ai-credit`, sementara aplikasi ini ditujukan untuk inbox chat. `followChatRoute()` memastikan halaman kembali ke `/chat`.
 
-Web app Jubelio mendarat di `/ai-credit` setelah login, padahal yang diinginkan
-adalah inbox chat. `followChatRoute()` menangani ini:
+Secara garis besar:
 
-1. Hanya URL dengan origin `https://chat.jubelio.com` yang diproses.
-2. Path `/chat` menandai `onChat = true`.
-3. Path `/login` mereset `onChat = false`, sehingga login berikutnya bisa
-   diarahkan lagi.
-4. Jika belum di `/chat` dan path adalah `/` atau `/ai-credit`, aplikasi
-   memuat `APP_URL` sekali.
+1. Routing hanya memproses URL dari `https://chat.jubelio.com`.
+2. Saat path `/chat` terbuka, status chat dianggap aktif.
+3. Path `/login` mereset status tersebut agar redirect setelah login bisa berjalan lagi.
+4. Jika halaman masih berada di `/` atau `/ai-credit`, aplikasi akan membuka `APP_URL` satu kali.
 
-Handler dipasang pada `did-navigate` dan `did-navigate-in-page`, jadi redirect
-juga bekerja untuk navigasi client-side (SPA).
+Handler dipasang pada `did-navigate` dan `did-navigate-in-page`, sehingga navigasi dan redirect dari SPA ikut ditangani.
 
-Window turunan dari `window.open` dipantau lewat `did-create-window`. Jika
-window tersebut kembali ke `/chat` atau `/`, window ditutup setelah 300 ms
-agar tidak menyisakan renderer yang tidak dipakai. Electron 40 sudah menutup
-window turunan otomatis saat window induknya ditutup (`outlivesOpener`
-default `false`).
-
----
+Window yang dibuat melalui `window.open` juga dipantau. Jika window tersebut kembali ke `/chat` atau `/`, window akan ditutup setelah 300 ms agar tidak meninggalkan renderer yang tidak dibutuhkan. Pada Electron 40, child window juga akan ditutup ketika window induk ditutup (default `outlivesOpener: false`).
 
 ## Keamanan
 
-- `nodeIntegration` dimatikan dan `sandbox` aktif; halaman web tidak punya
-  akses Node.js.
-- `contextIsolation` memisahkan world aplikasi dari halaman.
-- Tidak ada preload script dan tidak ada IPC kustom.
-- Navigasi top-level ke luar domain Jubelio dicegah dan dialihkan ke browser.
+Pengaturan keamanan Electron yang digunakan:
+
+- `nodeIntegration` dimatikan dan sandbox aktif, sehingga halaman web tidak memiliki akses Node.js.
+- `contextIsolation` memisahkan konteks aplikasi dan halaman.
+- Tidak menggunakan preload script maupun IPC kustom.
+- Navigasi top-level keluar dari domain Jubelio dicegah dan link eksternal dialihkan ke browser.
 - Hanya protokol `http:`, `https:`, dan `mailto:` yang diteruskan ke OS.
-- Izin dibatasi whitelist; permintaan lain ditolak.
-- Guard navigasi, `window.open`, context menu, dan penutupan child window
-  dipasang via `web-contents-created`, berlaku di main window maupun popup.
+- Izin web menggunakan whitelist; permintaan lainnya ditolak.
+- Guard navigasi, `window.open`, context menu, dan penanganan child window diterapkan melalui `web-contents-created`, termasuk pada popup.
 
-Web app tetap diperlakukan sebagai boundary kepercayaan: jangan menambahkan
-preload atau API Node tanpa kebutuhan yang jelas.
-
----
+Web app Jubelio tetap menjadi batas kepercayaan utama. Preload atau API Node sebaiknya tidak ditambahkan tanpa kebutuhan yang jelas.
 
 ## Troubleshooting
 
-**Window putih / halaman gagal dimuat**
-Periksa koneksi dan status `https://chat.jubelio.com`. Jalankan binary dari
-terminal untuk melihat log Chromium/Electron.
+**Window putih atau halaman tidak termuat**  
+Periksa koneksi internet dan status [chat.jubelio.com](https://chat.jubelio.com). Jalankan binary dari terminal untuk melihat log Electron/Chromium.
 
-**Tidak bisa login atau sesi rusak**
+**Login gagal atau sesi bermasalah**  
+Hapus data sesi untuk memulai ulang login:
+
 ```sh
 rm -rf ~/.config/"Jubelio Chat"
 ```
 
 **Error `chrome-sandbox` / `SUID sandbox helper`**
+
 ```sh
 sudo chown root:root "dist/Jubelio Chat-linux-x64/chrome-sandbox"
 sudo chmod 4755 "dist/Jubelio Chat-linux-x64/chrome-sandbox"
 ```
-Hindari `--no-sandbox` kecuali terpaksa.
 
-**Log memori tidak muncul**
-Pastikan menjalankan dengan `JUBELIO_MEM_LOG=1`. Log hanya aktif jika env var
-persis bernilai `1`, dan muncul pertama kali setelah ~2 detik.
+Hindari menggunakan `--no-sandbox` kecuali benar-benar terpaksa.
 
-**AppImage gagal dijalankan (FUSE tidak tersedia)**
+**Log memori tidak muncul**  
+Pastikan aplikasi dijalankan dengan `JUBELIO_MEM_LOG=1`. Logging hanya aktif jika nilai environment variable tepat `1`. Log pertama biasanya muncul setelah sekitar dua detik.
+
+**AppImage gagal karena FUSE tidak tersedia**
+
 ```sh
 ./Jubelio-Chat-<versi>-x86_64.AppImage --appimage-extract-and-run
 ```
 
-**Link eksternal tidak terbuka**
-Pastikan `xdg-open` terpasang dan ada browser default:
-`xdg-settings get default-web-browser`.
+**Link eksternal tidak terbuka**  
+Pastikan `xdg-open` tersedia dan browser default sudah disetel:
 
-**Notifikasi tidak muncul**
-Izin sudah diizinkan di Electron; periksa pengaturan notifikasi desktop dan
-sisi web.
+```sh
+xdg-settings get default-web-browser
+```
 
-**Masalah tampilan di Wayland**
-Jalankan dengan `--ozone-platform=wayland` atau `--ozone-platform=x11`.
+**Notifikasi tidak muncul**  
+Izin notifikasi sudah disediakan oleh Electron. Periksa pengaturan notifikasi desktop dan pengaturan dari sisi web app.
 
-**Mikrofon/kamera tidak berfungsi**
-Izin `media` sudah diberikan, tetapi akses perangkat bisa dibatasi
-PipeWire/Portal atau pengaturan privasi desktop.
+**Tampilan bermasalah di Wayland**  
+Coba jalankan dengan salah satu opsi berikut:
 
----
+```sh
+--ozone-platform=wayland
+--ozone-platform=x11
+```
+
+**Mikrofon atau kamera tidak berfungsi**  
+Izin `media` sudah diberikan, tetapi akses perangkat masih bisa dipengaruhi oleh PipeWire/Portal atau pengaturan privasi desktop.
 
 ## Lisensi dan atribusi
 
-Kode aplikasi dilisensikan **GPL-3.0**; teks lengkap ada di `LICENSE`.
-Runtime Electron/Chromium membawa lisensi pihak ketiga; daftar lengkapnya ada
-di `dist/Jubelio Chat-linux-x64/LICENSES.chromium.html` dan
-`dist/Jubelio Chat-linux-x64/LICENSE`.
+Kode aplikasi ini menggunakan lisensi **GPL-3.0**. Teks lisensi tersedia di `LICENSE`.
 
-Nama, logo, dan konten Jubelio tetap milik Jubelio dan tidak tercakup lisensi
-ini.
+Electron dan Chromium menyertakan lisensi pihak ketiga. Daftar lisensinya tersedia di:
+
+- `dist/Jubelio Chat-linux-x64/LICENSES.chromium.html`
+- `dist/Jubelio Chat-linux-x64/LICENSE`
+
+Nama, logo, dan konten Jubelio tetap merupakan milik Jubelio dan tidak termasuk dalam lisensi proyek ini.
