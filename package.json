@@ -1,0 +1,16 @@
+{
+  "name": "jubelio-chat-linux",
+  "productName": "Jubelio Chat",
+  "version": "1.1.28",
+  "description": "Jubelio Chat desktop app for Linux",
+  "main": "main.js",
+  "author": "Jubelio",
+  "license": "GPL-3.0-only",
+  "private": true,
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^40.0.0"
+  }
+}
